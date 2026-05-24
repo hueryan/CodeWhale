@@ -1,5 +1,6 @@
 //! TUI event loop and rendering logic for `DeepSeek` CLI.
 
+use std::fmt::Write as _;
 use std::io::{self, Stdout, Write};
 use std::path::PathBuf;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
@@ -2503,6 +2504,41 @@ async fn run_event_loop(
                         app.mcp_snapshot.as_ref(),
                     )));
                 continue;
+            }
+
+            // y / Y in the Tasks sidebar: yank the current turn id (y)
+            // or copy full task detail (Y) to the system clipboard.
+            if app.view_stack.is_empty()
+                && app.sidebar_focus == SidebarFocus::Tasks
+                && !app.runtime_turn_id.as_deref().unwrap_or("").is_empty()
+            {
+                if key.code == KeyCode::Char('y')
+                    && key.modifiers == KeyModifiers::NONE
+                {
+                    if let Some(turn_id) = app.runtime_turn_id.as_ref()
+                        && app.clipboard.write_text(turn_id).is_ok()
+                    {
+                        app.status_message =
+                            Some(format!("Copied turn id {turn_id}"));
+                    }
+                    continue;
+                }
+                if key.code == KeyCode::Char('Y')
+                    && key.modifiers == KeyModifiers::NONE
+                {
+                    let mut detail = String::new();
+                    if let Some(turn_id) = app.runtime_turn_id.as_ref() {
+                        let _ = write!(detail, "turn {turn_id}");
+                    }
+                    if let Some(status) = app.runtime_turn_status.as_deref() {
+                        let _ = write!(detail, "  status={status}");
+                    }
+                    if !detail.is_empty() && app.clipboard.write_text(&detail).is_ok() {
+                        app.status_message =
+                            Some(format!("Copied {detail}"));
+                    }
+                    continue;
+                }
             }
 
             // Shifted shortcuts toggle the file-tree pane. Keep plain Ctrl+E

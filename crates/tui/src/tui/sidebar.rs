@@ -574,9 +574,13 @@ fn task_panel_lines(app: &App, content_width: usize, max_rows: usize) -> Vec<Lin
             .as_deref()
             .unwrap_or("unknown")
             .to_string();
+        // Show enough of the turn id prefix to identify it for
+        // task_read / task_cancel. A UUID needs ~13 chars before the
+        // first hyphen; 16 chars gives a safe prefix for disambiguation.
+        let turn_prefix = truncate_line_to_width(turn_id, 16);
         lines.push(Line::from(Span::styled(
             truncate_line_to_width(
-                &format!("turn {} ({status})", truncate_line_to_width(turn_id, 12)),
+                &format!("turn {turn_prefix} ({status})",),
                 content_width.max(1),
             ),
             Style::default().fg(palette::DEEPSEEK_SKY),
@@ -595,24 +599,18 @@ fn task_panel_lines(app: &App, content_width: usize, max_rows: usize) -> Vec<Lin
             .iter()
             .filter(|task| task.status == "running")
             .count();
-        lines.push(Line::from(vec![
-            Span::styled(
-                if running == background_rows.len() {
-                    format!("Background jobs: {running} running")
-                } else {
-                    format!("Background jobs: {} active", background_rows.len())
-                },
-                Style::default().fg(palette::DEEPSEEK_SKY).bold(),
-            ),
-            Span::styled(
-                if running == background_rows.len() {
-                    String::new()
-                } else {
-                    format!(" ({running} running)")
-                },
-                Style::default().fg(palette::TEXT_MUTED),
-            ),
-        ]));
+        let done = background_rows.len().saturating_sub(running);
+        let label = if running == 0 {
+            format!("Background jobs: {done} completed")
+        } else if done == 0 {
+            format!("Background jobs: {running} running")
+        } else {
+            format!("Background jobs: {running} running, {done} completed")
+        };
+        lines.push(Line::from(Span::styled(
+            label,
+            Style::default().fg(palette::DEEPSEEK_SKY).bold(),
+        )));
 
         let max_items = max_rows.saturating_sub(lines.len());
         for task in background_rows.iter().take(max_items) {
@@ -662,6 +660,19 @@ fn task_panel_lines(app: &App, content_width: usize, max_rows: usize) -> Vec<Lin
             push_sidebar_label(&mut lines, "Recent tools", palette::TEXT_DIM);
             push_tool_rows(&mut lines, &recent_rows, content_width, max_rows);
         }
+    }
+
+    // Yank hint: surface the keyboard path for copying the focused task/turn ID.
+    if lines.len() + 1 < max_rows
+        && app.runtime_turn_id.is_some()
+        && app.sidebar_focus == SidebarFocus::Tasks
+    {
+        lines.push(Line::from(Span::styled(
+            "y → copy turn id  ·  Y → copy full status",
+            Style::default()
+                .fg(palette::TEXT_DIM)
+                .add_modifier(ratatui::style::Modifier::ITALIC),
+        )));
     }
 
     if lines.is_empty()
