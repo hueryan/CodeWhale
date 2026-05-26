@@ -14,6 +14,7 @@ use crate::palette;
 use crate::tools::review::ReviewOutput;
 use crate::tui::app::TranscriptSpacing;
 use crate::tui::diff_render;
+use crate::tui::html_render;
 use crate::tui::markdown_render;
 
 // === Constants ===
@@ -2197,8 +2198,10 @@ fn render_message(
     let prefix_width_u16 = u16::try_from(prefix_width.saturating_add(2)).unwrap_or(u16::MAX);
     let content_width = usize::from(width.saturating_sub(prefix_width_u16).max(1));
     let mut lines = Vec::new();
-    let rendered =
-        markdown_render::render_markdown_tagged(content, content_width as u16, body_style);
+    let rendered = html_render::render_html_tagged(content, content_width as u16, body_style)
+        .unwrap_or_else(|| {
+            markdown_render::render_markdown_tagged(content, content_width as u16, body_style)
+        });
     for (idx, rendered_line) in rendered.into_iter().enumerate() {
         if idx == 0 {
             let mut spans = Vec::new();
@@ -3246,6 +3249,37 @@ mod tests {
     use crate::palette;
     use ratatui::style::Modifier;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn assistant_html_response_renders_through_html_pipeline() {
+        let cell = HistoryCell::Assistant {
+            content: "<section><h2>LLM HTML Response</h2><p>Hello <strong>TUI</strong></p><script>alert('x')</script></section>".to_string(),
+            streaming: false,
+        };
+
+        let lines = cell.lines_with_options(80, TranscriptRenderOptions::default());
+        let joined = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(joined.contains("LLM HTML Response"), "{joined:?}");
+        assert!(joined.contains("Hello TUI"), "{joined:?}");
+        assert!(
+            !joined.contains("alert"),
+            "script content must be sanitized: {joined:?}"
+        );
+        assert!(
+            !joined.contains("<section"),
+            "raw HTML tags should not leak: {joined:?}"
+        );
+    }
 
     // ---- elapsed-seconds badge for long-running tools ----
     //
